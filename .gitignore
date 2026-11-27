@@ -2,6 +2,7 @@
 .env.*
 !.env.example
 flagsmith/*.env
+flagsmith.json
 .agents/
 .aws/
 .codex/

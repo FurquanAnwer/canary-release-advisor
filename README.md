@@ -1,33 +1,25 @@
 # Canary Control Room
 
-A local, three-scenario canary release decision demo connected to a real Flagsmith Experimentation instance.
+A local rollout decision experiment using Flagsmith Experimentation. Each browser visitor receives a stable cohort and one randomly assigned scored scenario. The other scenarios unlock as unscored practice.
 
-## Run
+## Set up a fresh local instance
 
-1. Start the local Flagsmith stack from `flagsmith/` with `docker compose up -d`.
-2. Install dependencies with `npm install` at the repository root.
-3. Copy `.env.example` to `.env.local` and set `VITE_FLAGSMITH_ENVIRONMENT_ID` to the Development client-side environment key. This workspace already has a local, ignored `.env.local`.
-4. Run `npm run dev` and open the Vite URL shown in the terminal (normally `http://localhost:5173`).
+1. Run `docker compose -f flagsmith/docker-compose.yml up -d`. Wait for the Flagsmith UI at `http://localhost:8000`; create an account, organisation, project and Development environment.
+2. Create a multivariate flag named `canary_release_advisor` in the project. Add two string values, `control` and `advisor`, weighted equally. Enable it in Development at 100% rollout. Create and start an experiment on that flag, with `correct_rollout_decision` as conversion event.
+3. Copy `.env.example` to `.env.local`. Copy the **client-side environment key** from your environment settings to `VITE_FLAGSMITH_ENVIRONMENT_ID`. Set `VITE_FLAGSMITH_API_URL` to the URL your browser uses to reach Flagsmith. Copy the experiment's actual UI URL to `VITE_FLAGSMITH_EXPERIMENT_URL`. Never put an organisation API token in a client-side variable.
+4. Optional CLI: copy `flagsmith.example.json` to ignored `flagsmith.json` and replace the project ID and environment key with your own.
+5. Run `npm ci && npm run dev`, then visit the shown Vite URL (usually `http://localhost:5173`). If using another host, verify browser access and CORS on the Flagsmith API.
 
-The local experiment is [Canary advisor decision accuracy](http://localhost:8000/project/1/environment/FpeSRiQZWQPe3uwQUwvc9c/experiments/1). It is configured in Development with a 100% rollout and an even control/advisor split.
+## Verify ingestion
 
-The browser SDK uses `http://localhost:8000/api/v1/` for flags and `http://localhost:8000/api/` for events. The CLI's organisation API key is in `flagsmith/flagsmith.env` (mode 600, ignored by Git); it must never be shipped with the app. To use the CLI, run `source flagsmith/flagsmith.env` in your shell. The CLI executable is at `~/.local/bin/flagsmith`.
+1. In browser network tools, confirm the SDK requests flags for the visitor identity and receives either `control` or `advisor`.
+2. Submit the assigned scenario once. Confirm in Flagsmith analytics/events one `rollout_decision_submitted` and, if correct, one `correct_rollout_decision`. Submission metadata carries scenario, choice, correctness and elapsed milliseconds; a specific event `rollout_decision_submitted_<scenario>_<choice>` also identifies the decision where the dashboard does not display metadata. `rollout_decision_seconds` carries numeric duration in its `value` field. The SDK may batch events; allow its flush to complete.
+3. Complete a practice scenario: no new scored outcome should appear. Reload: identity, scenario and submission should persist. Use a separate browser profile for a second visitor; do not clear storage to pretend the same person is an independent participant.
 
-## Experiment behavior
+Run `npm test`, `npm run test:ui`, and `npm run build`. `docker compose -f flagsmith/docker-compose.yml down` stops the instance; `down -v` deletes its data.
 
-- Flag: `canary_release_advisor` with `control` and keyed `advisor` values.
-- The experiment flag is read by `useExperiment` where the decision experience is displayed. This records an exposure for the visitor identity.
-- The identity is a random UUID stored in the browser's local storage. It is passed to `FlagsmithProvider`, so flag evaluation and events use the same identity.
-- The exact conversion event is `correct_rollout_decision`. It is sent only after a correct first submission for a scenario. Submitted choices and time to decision are stored locally, keyed by visitor ID.
-- The advisor is prepared, rule-based guidance for each scenario. It does not call a live AI model.
+## Measurement and reporting
 
-The three scenarios are intentionally deterministic. No simulated traffic has been sent. To claim that the advisor improves decisions, collect decisions from real visitors and examine the experiment results over an appropriate sample and run time.
+Primary accuracy is correct primary submissions divided by primary submissions, per cohort. Completion is submitted visitors divided by exposed visitors. Report decision time separately. Flagsmith's conversion metric counts events, so compare unique identities and submitted counts as well. One attempt is scored per browser identity; practice remains local.
 
-## Checks
-
-Run `npm test` for scenario, conversion, and identity checks; `npm run test:ui` for cohort rendering and event checks; and `npm run build` for a production bundle check.
-
-## Stop or remove the local instance
-
-From `flagsmith/`, run `docker compose down` to stop it. `docker compose down -v` deletes its database volume and all local Flagsmith data.
-# canary-release-advisor
+The `#results` page describes the hypothesis and limitations and links to your configured experiment. It shows **awaiting verified data** until cohort sizes, conversion rates, completion, decision times and traffic origin have been gathered. If using simulated traffic, report it separately from human traffic. Prepared guidance uses scenario rules, not a live AI system or production telemetry.
