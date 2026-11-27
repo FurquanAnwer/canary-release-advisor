@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { scenarios } from './scenarios.js';
-import { CONVERSION_EVENT, VISITOR_STORAGE_KEY, evaluateDecision, getOrCreateVisitorId } from './decision.js';
+import { CONVERSION_EVENT, VISITOR_STORAGE_KEY, SUBMISSION_EVENT, evaluateDecision, getOrCreateVisitorId, getOrAssignPrimaryScenario } from './decision.js';
 
 test('the prepared scenarios have the intended distinct correct actions', () => {
   assert.deepEqual(scenarios.map(({ id, correctAction }) => [id, correctAction]), [
@@ -36,4 +36,14 @@ test('visitor ID is generated once and reused from local storage', () => {
   assert.equal(first, 'visitor_stable-random-id');
   assert.equal(second, first);
   assert.equal(values.get(VISITOR_STORAGE_KEY), first);
+});
+
+test('primary assignment is random once and stable for the same visitor', () => {
+  const values = new Map();
+  const storage = { getItem: (key) => values.get(key) || null, setItem: (key, value) => values.set(key, value) };
+  const ids = scenarios.map(({ id }) => id);
+  assert.equal(getOrAssignPrimaryScenario(storage, 'a', ids, () => 0.99), 'spike');
+  assert.equal(getOrAssignPrimaryScenario(storage, 'a', ids, () => 0), 'spike');
+  assert.equal(getOrAssignPrimaryScenario(storage, 'b', ids, () => 0), 'healthy');
+  assert.equal(SUBMISSION_EVENT, 'rollout_decision_submitted');
 });
