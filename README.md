@@ -2,6 +2,8 @@
 
 A local rollout decision experiment using Flagsmith Experimentation. Each browser visitor receives a stable cohort and one randomly assigned scored scenario. The other scenarios unlock as unscored practice.
 
+The interface uses a monochrome control-room theme with CSS wireframe box motion, animated charts and scenario cards, and scroll reveals. Motion is reduced automatically when the browser requests reduced motion.
+
 ## Set up a fresh local instance
 
 1. Run `docker compose -f flagsmith/docker-compose.yml up -d`. Wait for the Flagsmith UI at `http://localhost:8000`; create an account, organisation, project and Development environment.

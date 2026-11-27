@@ -5,6 +5,7 @@ import { FlagsmithProvider } from '@flagsmith/flagsmith/react';
 import App from './App.jsx';
 import { getOrCreateVisitorId } from './decision.js';
 import './styles.css';
+import './motion.css';
 
 const environmentID = import.meta.env.VITE_FLAGSMITH_ENVIRONMENT_ID;
 const apiBase = (import.meta.env.VITE_FLAGSMITH_API_URL || 'http://localhost:8000').replace(/\/$/, '');
