@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+flagsmith/*.env
+.agents/
+.aws/
+.codex/
+node_modules/
+dist/
+*.zip
