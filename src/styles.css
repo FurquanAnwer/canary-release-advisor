@@ -19,3 +19,10 @@
 .live-actions button { padding: 10px 14px; border-radius: 8px; border: 1px solid #69bb8a; background: #193627; color: white; cursor: pointer; }
 .live-actions button:disabled { opacity: .45; cursor: not-allowed; }
 @media (max-width: 760px) { .live-columns { grid-template-columns: 1fr; } }
+.live-segments, .pause-control { margin-top: 24px; padding: 20px; border: 1px solid #7777; border-radius: 12px; }
+.live-segments table { width: 100%; border-collapse: collapse; text-align: left; }
+.live-segments th, .live-segments td { padding: 10px; border-bottom: 1px solid #7775; }
+.pause-control label { display: flex; align-items: flex-start; gap: 8px; }
+.pause-control input[type="checkbox"] { width: auto; margin-top: 5px; }
+.pause-control button { border: 1px solid #e7a67d; border-radius: 8px; background: #633625; color: white; padding: 12px; cursor: pointer; }
+.pause-control button:disabled { cursor: not-allowed; opacity: .45; }

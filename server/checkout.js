@@ -27,28 +27,30 @@ export function createCheckout({ random = Math.random, now = Date.now, sleep = (
     return { mode, rollout };
   }
 
-  async function checkout({ cartId, shopperId, amount, currency = 'USD' }, assignment) {
+  async function checkout({ cartId, shopperId, region = 'unknown', tier = 'standard', amount, currency = 'USD' }, assignment) {
     if (typeof cartId !== 'string' || !cartId.trim() || !Number.isFinite(amount) || amount <= 0 || currency !== 'USD') throw new Error('Supply cartId, positive amount, and USD currency');
     if (typeof shopperId !== 'string' || !shopperId.trim() || shopperId.length > 128) throw new Error('Supply a shopperId of at most 128 characters');
+    if (!['IN', 'EU', 'US', 'unknown'].includes(region) || !['standard', 'premium'].includes(tier)) throw new Error('Invalid shopper region or tier');
     const version = assignment?.version || localVersion(shopperId, rollout);
     if (!['stable', 'canary'].includes(version)) throw new Error('Invalid version');
     const start = performance.now();
     const faulty = version === 'canary' && mode !== 'healthy';
     await sleep(faulty && mode === 'latency' ? 160 : 12);
     const ok = !(faulty && mode === 'regression' && random() < 0.18);
-    const sample = { at: now(), version, ok, durationMs: Math.max(0, performance.now() - start) };
+    const sample = { at: now(), version, ok, region, tier, durationMs: Math.max(0, performance.now() - start) };
     samples.push(sample);
     samples = samples.filter((item) => item.at >= now() - WINDOW_MS).slice(-MAX_SAMPLES);
     return { ok, status: ok ? 'completed' : 'failed', version, assignmentSource: assignment?.source || 'local-sticky', cartId, durationMs: Math.round(sample.durationMs) };
   }
 
-  function recordDecision({ action, note }) {
+  function recordDecision({ action, note }, execution = null) {
     if (!['increase', 'hold', 'rollback'].includes(action) || typeof note !== 'string' || note.length > 500) throw new Error('Supply action and note (max 500 characters)');
-    const decision = { at: now(), action, note, snapshot: metrics() };
+    const decision = { at: now(), action, note, execution, snapshot: metrics() };
     decisions = [decision, ...decisions].slice(0, 20);
     log('decision', `Engineer recorded ${action}${note ? `: ${note}` : ''}`);
     return decision;
   }
+  function recordControl(type, message) { log(type, message); }
 
   function metrics() {
     const timestamp = now();
@@ -58,8 +60,9 @@ export function createCheckout({ random = Math.random, now = Date.now, sleep = (
       const durations = rows.map((item) => item.durationMs).sort((a, b) => a - b);
       return { requests: rows.length, errors: rows.filter((item) => !item.ok).length, errorRate: rows.length ? rows.filter((item) => !item.ok).length / rows.length : null, p95Ms: durations.length ? Math.round(durations[Math.ceil(durations.length * .95) - 1]) : null };
     };
-    return { source: 'demo-checkout-api', generatedAt: new Date(timestamp).toISOString(), lastRequestAt: samples.length ? new Date(samples.at(-1).at).toISOString() : null, windowSeconds: 60, mode, rollout, stable: aggregate('stable'), canary: aggregate('canary'), timeline: events, decisions };
+    const segments = ['IN', 'EU', 'US', 'unknown'].map((region) => ({ region, stable: samples.filter((row) => row.region === region && row.version === 'stable').length, canary: samples.filter((row) => row.region === region && row.version === 'canary').length }));
+    return { source: 'demo-checkout-api', generatedAt: new Date(timestamp).toISOString(), lastRequestAt: samples.length ? new Date(samples.at(-1).at).toISOString() : null, windowSeconds: 60, mode, rollout, stable: aggregate('stable'), canary: aggregate('canary'), segments, timeline: events, decisions };
   }
 
-  return { checkout, metrics, setConfig, recordDecision };
+  return { checkout, metrics, setConfig, recordDecision, recordControl };
 }
