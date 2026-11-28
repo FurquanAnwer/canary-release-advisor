@@ -10,15 +10,29 @@ npm run traffic
 npm run dev
 ```
 
-Open `http://localhost:5173/#live`. The generator sends 20 checkout requests per second by default. The service routes 5% to canary and records the actual result and duration of each request; the dashboard shows rolling one-minute request counts, failures, error rate and p95 for each version. To make the canary fail while stable stays healthy:
+Open `http://localhost:5173/#live`. The generator sends 20 checkout requests per second by default, reusing 1,000 labeled simulated shopper IDs. Without a checkout flag, the service deterministically routes 5% of shoppers to canary; each shopper stays on one version. The dashboard shows rolling one-minute request counts, failures, error rate and p95 for each version. To make the canary fail while stable stays healthy:
 
 ```bash
 curl -X POST http://127.0.0.1:8787/api/live/config -H 'Content-Type: application/json' -H 'Authorization: Bearer local-demo-secret' -d '{"mode":"regression","rollout":20}'
 ```
 
-Set `mode` to `healthy` to recover or `latency` to slow only canary. Set `rollout` to an integer from 0 to 100. These are local demonstration controls; the config endpoint requires a token and the API binds to loopback by default. Do not publish this demo API as a payment processor: it charges nothing, stores no orders, and has no persistence. Metrics live in memory and reset on restart. `TRAFFIC_RPS=30 npm run traffic` changes the generated rate; Ctrl+C stops it. `npm test` checks routing and rolling counts.
+Set `mode` to `healthy` to recover or `latency` to slow only canary. Set `rollout` to an integer from 0 to 100 when using local assignment. These are local demonstration controls; the config and decision endpoints require a token and the API binds to loopback by default. The live page lets an operator enter that token to record a decision and metrics snapshot without changing the rollout. Do not publish this demo API as a payment processor: it charges nothing, stores no orders, and has no persistence. Metrics and decision history live in memory and reset on restart. `TRAFFIC_RPS=30 npm run traffic` changes the generated rate; Ctrl+C stops it. `npm test` checks routing and rolling counts.
 
-For a public deployment, serve the Vite app and proxy `/api/live/metrics` to this API; keep the admin endpoint private. The Vite development server already proxies the metrics route locally. Real production integration would replace the in-memory checkout service with instrumented application requests and a persistent monitoring data source.
+### Let Flagsmith control the checkout canary
+
+In the Flagsmith Development environment create a separate **multivariate feature flag** called `checkout_canary`, with string values `stable` and `canary`. Allocate the desired share to `canary`. Start the API with the same environment's client-side key and API URL:
+
+```bash
+CHECKOUT_ADMIN_TOKEN=local-demo-secret CHECKOUT_FLAGSMITH_ENVIRONMENT_ID=YOUR_DEVELOPMENT_CLIENT_SIDE_KEY CHECKOUT_FLAGSMITH_API_URL=http://localhost:8000 npm run checkout
+```
+
+The API evaluates `checkout_canary` for each shopper identity, caching successful results briefly. If the flag is missing or Flagsmith cannot be reached, new shoppers are routed to stable, and the live page reports the unavailable source. The local `rollout` parameter no longer controls assignment when Flagsmith is configured. Keep this checkout flag **separate from** the `canary_release_advisor` experiment flag: the former controls the demo service; the latter assigns human decision makers to interface variants. Checkout requests are not advisor conversions. Changing flag weights during a measured experiment can rebucket identities.
+
+### Show the experiment result honestly
+
+Before submission, open the Flagsmith experiment and check that both variants have exposures and `correct_rollout_decision` conversions from the same visitor identity. Check `rollout_decision_submitted` counts, sample balance, and whether the SDK flushed events. Refresh the experiment results and record the cohort counts, correct decisions, median decision time, collection date and whether visitors were human or simulated in `src/results.json`. Do not fill these fields with invented values. Keep generated checkout traffic out of the advisor results.
+
+For a public deployment, serve the Vite app and proxy `/api/live/metrics` to this API; restrict the admin endpoints and do not expose the demo admin token. The Vite development server already proxies the live routes locally. Real production integration would replace the in-memory checkout service with instrumented application requests and a persistent monitoring data source.
 
 A local rollout decision experiment using Flagsmith Experimentation. Each browser visitor receives a stable cohort and one randomly assigned scored scenario. The other scenarios unlock as unscored practice.
 
