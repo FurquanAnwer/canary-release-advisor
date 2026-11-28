@@ -66,7 +66,7 @@ function SignalOrbit() {
       <span className="signal-orbit__node signal-orbit__node--right">ERRORS</span>
       <span className="signal-orbit__node signal-orbit__node--bottom">P95 LATENCY</span>
       <span className="signal-orbit__node signal-orbit__node--left">DEPLOY</span>
-      <span className="signal-orbit__caption">SIGNAL RELATIONSHIP / LIVE VIEW</span>
+      <span className="signal-orbit__caption">SIGNAL RELATIONSHIP / PREPARED SCENARIO</span>
     </div>
   );
 }
@@ -199,7 +199,8 @@ function DecisionExperience({ visitorId }) {
         <div className="sidebar-label">WORKSPACE</div>
         <div className="sidebar-link sidebar-link--active"><span>▦</span> Decision lab <span className="sidebar-link__arrow">↗</span></div>
         <button className="sidebar-link" onClick={() => window.location.hash = 'results'}><span>◷</span> Results & methodology</button>
-        <div className="sidebar-bottom"><div className="status-dot" /> <div><strong>EXPERIMENT LIVE</strong><span>Flagsmith · Development</span></div></div>
+        <button className="sidebar-link" onClick={() => window.location.hash = 'live'}><span>◉</span> Live checkout demo</button>
+        <div className="sidebar-bottom"><div className="status-dot" /> <div><strong>EXPERIMENT VARIANT LOADED</strong><span>Flagsmith · configured environment</span></div></div>
       </aside>
 
       <main className="main">
@@ -226,7 +227,7 @@ function DecisionExperience({ visitorId }) {
               <span className="hero-coordinate hero-coordinate--bottom">OBSERVE · EVALUATE · DECIDE</span>
             </div>
             <div className="motion-hero__bottom">
-              <div className="hero-status"><span className="hero-status__pulse" /> LIVE EXPERIMENT <span className="hero-status__divider">/</span> FLAGSMITH DEVELOPMENT</div>
+              <div className="hero-status"><span className="hero-status__pulse" /> FLAGSMITH ASSIGNED VIEW <span className="hero-status__divider">/</span> PREPARED SCENARIOS</div>
               <div className="score-card"><span>YOUR SESSION</span><strong>{correctCount}<small> / {completed.length || 0}</small></strong><div>correct decisions</div></div>
             </div>
           </section>
@@ -250,7 +251,7 @@ function DecisionExperience({ visitorId }) {
             <div className="context-strip"><span>◉ &nbsp; DEPLOYMENT CONTEXT</span><p>{scenario.context}</p></div>
           </section>
 
-          <section className="signals" data-reveal><div className="section-title"><span>02</span> LIVE SIGNALS <div className="section-line" /><small>CANARY VS STABLE · LAST 30 MIN</small></div><div className="metric-grid" key={scenario.id}>{scenario.metrics.map((metric) => <MetricCard key={metric.label} metric={metric} />)}</div></section>
+          <section className="signals" data-reveal><div className="section-title"><span>02</span> SCENARIO SIGNALS <div className="section-line" /><small>PREPARED INCIDENT · CANARY VS STABLE</small></div><div className="metric-grid" key={scenario.id}>{scenario.metrics.map((metric) => <MetricCard key={metric.label} metric={metric} />)}</div></section>
 
           <Comparison scenario={scenario} />
           <div className={`evidence-grid ${variant === 'advisor' ? 'evidence-grid--advisor' : 'evidence-grid--control'}`} data-reveal><section className="history-panel"><div className="panel-title">DEPLOYMENT HISTORY <span>↗</span></div><div className="timeline">{scenario.history.map((item) => <div className="timeline-row" key={item.time}><span className="timeline-dot" /><div className="timeline-time">{item.time}</div><div><strong>{item.event}</strong><p>{item.detail}</p></div></div>)}</div></section>{variant === 'advisor' && <Advisor scenario={scenario} />}</div>
@@ -274,6 +275,10 @@ export default function App({ visitorId }) {
 function LivePage() {
   const [metrics, setMetrics] = useState(null);
   const [error, setError] = useState('');
+  const [adminToken, setAdminToken] = useState('');
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState('');
   useEffect(() => {
     let active = true;
     const refresh = async () => {
@@ -289,10 +294,26 @@ function LivePage() {
     return () => { active = false; clearInterval(timer); };
   }, []);
   const pct = (value) => value == null ? '—' : `${(value * 100).toFixed(1)}%`;
-  const status = !metrics || !metrics.canary.requests || !metrics.stable.requests ? 'Waiting for traffic in both pools' : metrics.canary.requests < 20 ? 'Hold: canary sample too small' : metrics.canary.errorRate - metrics.stable.errorRate > .05 || metrics.canary.p95Ms - metrics.stable.p95Ms > 100 ? 'Investigate canary regression' : 'Signals within demo guardrails';
-  return <main className="results-page"><a href="#">← Decision lab</a><div className="eyebrow">CHECKOUT API · LIVE DEMO</div><h1>Checkout release signals</h1><p>Measured requests from the local checkout API, separated by stable and canary version. Traffic comes from the labeled generator or actual checkout requests. This page does not submit Flagsmith experiment events.</p>
-    {error ? <p role="alert">Metrics unavailable: {error}. Start the checkout API and traffic generator.</p> : metrics ? <><p role="status">{status} · Canary rollout {metrics.rollout}% · Fault mode {metrics.mode} · Last update {new Date(metrics.generatedAt).toLocaleTimeString()} · Rolling {metrics.windowSeconds}s</p><div className="results-grid">{['stable', 'canary'].map((version) => <article key={version}><h2>{version === 'stable' ? 'Stable version' : 'Canary version'}</h2><p>Requests: {metrics[version].requests}</p><p>Failed: {metrics[version].errors}</p><p>Error rate: {pct(metrics[version].errorRate)}</p><p>p95 response: {metrics[version].p95Ms ?? '—'} ms</p></article>)}</div></> : <p role="status">Loading measurements…</p>}
-    <h2>How to demonstrate</h2><p>Run the checkout API and generator, then use the documented local admin command to change the canary fault mode. Observe real requests and their measured response times. These are generated demo requests, not production customers. The status is illustrative and never changes deployment automatically.</p>
+  const lastAge = metrics?.lastRequestAt ? Math.max(0, Math.floor((Date.now() - new Date(metrics.lastRequestAt).getTime()) / 1000)) : null;
+  const stale = lastAge === null || lastAge > 10;
+  const status = !metrics || stale ? 'No recent checkout traffic' : !metrics.canary.requests || !metrics.stable.requests ? 'Waiting for traffic in both pools' : metrics.canary.requests < 20 ? 'Hold: canary sample too small' : metrics.canary.errorRate - metrics.stable.errorRate > .05 || metrics.canary.p95Ms - metrics.stable.p95Ms > 100 ? 'Investigate canary regression' : 'Signals within demo guardrails';
+  async function recordDecision(action) {
+    setSaving(true);
+    setFeedback('');
+    try {
+      const response = await fetch('/api/live/decisions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` }, body: JSON.stringify({ action, note }) });
+      if (!response.ok) throw new Error((await response.json()).error || 'Could not save decision');
+      setFeedback(`${action} recorded with a snapshot of the current measurements.`);
+      setNote('');
+      const refreshed = await fetch('/api/live/metrics', { cache: 'no-store' });
+      if (refreshed.ok) setMetrics(await refreshed.json());
+    } catch (cause) { setFeedback(cause.message); }
+    finally { setSaving(false); }
+  }
+  return <main className="results-page live-page"><a href="#">← Decision experiment</a><div className="eyebrow">MEASURED API REQUESTS · GENERATED SHOPPERS</div><h1>Checkout release control room</h1><p>A tiny checkout service routes shoppers to stable or canary. Each completed HTTP request produces a real result and measured response time. Generated shoppers exercise the API; no payments take place. This view does not submit Flagsmith advisor experiment events.</p>
+    {error ? <p role="alert">Metrics unavailable: {error}. Start the checkout API and traffic generator.</p> : metrics ? <><div className="live-status" role="status"><strong>{status}</strong><span>Assignment: {metrics.assignmentSource === 'flagsmith' ? 'Flagsmith checkout_canary flag' : metrics.assignmentSource === 'flagsmith-unavailable' ? 'Flagsmith unavailable; sending shoppers to stable' : metrics.assignmentSource === 'flagsmith-pending' ? 'Waiting for first Flagsmith evaluation' : 'Local sticky rollout'} · {metrics.assignmentSource === 'local-sticky' ? `Local canary share ${metrics.rollout}%` : 'Flag controls canary exposure'} · Fault mode: {metrics.mode}</span><span>Last request: {lastAge === null ? 'none in the current window' : `${lastAge}s ago`} · Updated: {new Date(metrics.generatedAt).toLocaleTimeString()} · Rolling {metrics.windowSeconds}s</span></div><div className="results-grid">{['stable', 'canary'].map((version) => <article key={version}><h2>{version === 'stable' ? 'Stable version' : 'Canary version'}</h2><p>Requests: {metrics[version].requests}</p><p>Failed: {metrics[version].errors}</p><p>Error rate: {pct(metrics[version].errorRate)}</p><p>p95 response: {metrics[version].p95Ms ?? '—'} ms</p></article>)}</div>
+    <div className="live-columns"><section><h2>Incident timeline</h2><p>Changes to fault mode and local rollout are recorded here alongside engineer decisions. The service restarts with an empty history.</p><ol className="live-timeline">{metrics.timeline.map((event, index) => <li key={`${event.at}-${index}`}><time>{new Date(event.at).toLocaleTimeString()}</time><strong>{event.message}</strong></li>)}</ol></section><section><h2>Record a decision</h2><p>Capture your call and the current measurements. Recording a decision does not change the rollout or execute a rollback.</p><label>Local admin token<input type="password" autoComplete="off" value={adminToken} onChange={(event) => setAdminToken(event.target.value)} placeholder="CHECKOUT_ADMIN_TOKEN" /></label><label>Reason (optional)<textarea maxLength={500} value={note} onChange={(event) => setNote(event.target.value)} placeholder="What did you observe?" /></label><div className="live-actions">{ACTIONS.map((action) => <button type="button" key={action.id} disabled={saving || !adminToken} onClick={() => recordDecision(action.id)}>{action.label}</button>)}</div><p role="status">{feedback}</p>{metrics.decisions.length > 0 && <p>Latest call: <strong>{metrics.decisions[0].action}</strong> at {new Date(metrics.decisions[0].at).toLocaleTimeString()} · {metrics.decisions[0].snapshot.canary.requests} canary requests in its snapshot.</p>}</section></div></> : <p role="status">Loading measurements…</p>}
+    <h2>How to demonstrate</h2><p>Run the checkout API and traffic generator, then change only the canary fault mode with the documented local admin command. Watch measured failures or latency diverge, record a decision, and restore healthy mode. The status is illustrative and never changes deployment automatically.</p>
   </main>;
 }
 
@@ -300,10 +321,11 @@ function ResultsPage() {
   const experimentUrl = import.meta.env.VITE_FLAGSMITH_EXPERIMENT_URL;
   const rate = (numerator, denominator) => denominator > 0 ? `${(100 * numerator / denominator).toFixed(1)}%` : 'awaiting data';
   const cohort = (name, row) => <article key={name}><strong>{name}</strong><p>Exposed: {row?.exposed ?? 'awaiting verified data'}</p><p>Submitted: {row?.submitted ?? 'awaiting verified data'}</p><p>Correct: {row?.correct ?? 'awaiting verified data'}</p><p>Completion: {rate(row?.submitted, row?.exposed)}</p><p>Accuracy: {rate(row?.correct, row?.submitted)}</p><p>Conversion per exposure: {rate(row?.correct, row?.exposed)}</p><p>Median decision time: {row?.medianSeconds != null ? `${row.medianSeconds}s` : 'awaiting data'}</p></article>;
-  return <main className="results-page"><a href="#">← Decision lab</a><div className="eyebrow">EXPERIMENT · METHODOLOGY</div><h1>Does evidence improve rollout judgment?</h1>
+  return <main className="results-page"><a href="#">← Decision lab</a> · <a href="#live">Live checkout demo →</a><div className="eyebrow">EXPERIMENT · METHODOLOGY</div><h1>Does evidence improve rollout judgment?</h1>
     <p>The advisor cohort sees a prepared, rule-based evidence summary. The control cohort sees the same metrics, guardrails and deployment history. The hypothesis is that evidence summaries improve the proportion of correct first decisions on a randomly assigned scenario.</p>
     <h2>Results</h2><div className="results-grid">{cohort('Control', results.control)}{cohort('Advisor', results.advisor)}</div>
     <p>Data source: {results.source || 'Flagsmith Experimentation · awaiting verified export'}. As of: {results.asOf || 'not yet recorded'}. Traffic: {results.traffic || 'not yet documented'}; no human or simulated result is claimed until it is measured. {experimentUrl ? <a href={experimentUrl} target="_blank" rel="noreferrer">Open this instance’s Flagsmith experiment ↗</a> : 'Configure VITE_FLAGSMITH_EXPERIMENT_URL for a link to your instance.'}</p>
+    <h2>Before claiming a winner</h2><ol><li>Check that both variants have exposures and that the conversion event arrives from the same visitor identities.</li><li>Check submitted decisions, accuracy and completion for both groups; report the size and origin of each cohort.</li><li>Refresh Flagsmith results, note the As of timestamp, and inspect sample ratio mismatch or excluded identities. A small sample remains inconclusive.</li></ol>
     <h2>Measurement</h2><ul><li>One stable browser identity receives one persistent random scenario and one Flagsmith variant.</li><li>Primary accuracy = unique correct primary submissions / unique primary submissions; report completion = submissions / exposed visitors separately.</li><li>Flagsmith events: correct_rollout_decision, rollout_decision_submitted, rollout_decision_submitted_&lt;scenario&gt;_&lt;choice&gt;, and rollout_decision_seconds (numeric seconds). Practice never emits these events.</li><li>Decision time starts when a scenario first appears in the current page session. Refreshing resets its timer, so interpret duration cautiously.</li></ul>
     <h2>Limitations</h2><p>Prepared scenarios are deterministic and cannot prove impact on real production incidents. Browser storage can be cleared, identities may repeat across devices, exposure without submission affects completion, and visitors are not blinded to the extra panel. Results require a meaningful sample and must distinguish human visitors from any simulated traffic.</p>
   </main>;

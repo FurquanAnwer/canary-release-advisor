@@ -1,10 +1,12 @@
 import http from 'node:http';
 import { createCheckout } from './checkout.js';
+import { createAssignment } from './assignment.js';
 
 const service = createCheckout();
 const port = Number(process.env.CHECKOUT_PORT || 8787);
 const host = process.env.CHECKOUT_HOST || '127.0.0.1';
 const token = process.env.CHECKOUT_ADMIN_TOKEN;
+const assignment = createAssignment({ environmentKey: process.env.CHECKOUT_FLAGSMITH_ENVIRONMENT_ID, apiUrl: process.env.CHECKOUT_FLAGSMITH_API_URL });
 
 function reply(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -24,15 +26,20 @@ export function createServer() {
   return http.createServer(async (req, res) => {
     try {
       const path = new URL(req.url, 'http://localhost').pathname;
-      if (req.method === 'GET' && path === '/api/live/metrics') return reply(res, 200, service.metrics());
+      if (req.method === 'GET' && path === '/api/live/metrics') return reply(res, 200, { ...service.metrics(), assignmentSource: assignment.source });
       if (req.method === 'POST' && path === '/api/checkout') {
         const payload = await readJson(req);
-        const result = await service.checkout(payload);
+        const selection = typeof payload.shopperId === 'string' && payload.shopperId.trim() ? await assignment.assign(payload.shopperId, service.metrics().rollout) : undefined;
+        const result = await service.checkout(payload, selection);
         return reply(res, result.ok ? 200 : 503, result);
       }
       if (req.method === 'POST' && path === '/api/live/config') {
         if (!token || req.headers.authorization !== `Bearer ${token}`) return reply(res, 403, { error: 'Admin token required' });
         return reply(res, 200, service.setConfig(await readJson(req)));
+      }
+      if (req.method === 'POST' && path === '/api/live/decisions') {
+        if (!token || req.headers.authorization !== `Bearer ${token}`) return reply(res, 403, { error: 'Admin token required' });
+        return reply(res, 201, service.recordDecision(await readJson(req)));
       }
       reply(res, 404, { error: 'Not found' });
     } catch (error) { reply(res, 400, { error: error.message }); }
