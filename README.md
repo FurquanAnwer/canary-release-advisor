@@ -28,6 +28,26 @@ CHECKOUT_ADMIN_TOKEN=local-demo-secret CHECKOUT_FLAGSMITH_ENVIRONMENT_ID=YOUR_DE
 
 The API evaluates `checkout_canary` for each shopper identity, caching successful results briefly. If the flag is missing or Flagsmith cannot be reached, new shoppers are routed to stable, and the live page reports the unavailable source. The local `rollout` parameter no longer controls assignment when Flagsmith is configured. Keep this checkout flag **separate from** the `canary_release_advisor` experiment flag: the former controls the demo service; the latter assigns human decision makers to interface variants. Checkout requests are not advisor conversions. Changing flag weights during a measured experiment can rebucket identities.
 
+### Target groups, guardrails, and pause control
+
+The traffic generator sends stable simulated shopper identities with `region` (`IN`, `EU`, `US`) and `tier` (`standard`, `premium`) traits. Add a Flagsmith segment such as `region = IN` and target `checkout_canary` to that segment. The live page reports observed request counts by region so you can check which group really received the release. The service evaluates identity flags server side with these traits; the simulator supplies them and should not be used as an authorisation system.
+
+Create a separate boolean flag `checkout_pause`, initially **disabled** for the environment and without identity or segment overrides. Every checkout checks its environment-level value; when enabled, the API routes new requests to stable even if the identity's `checkout_canary` value was canary. If flag evaluation is unavailable, new requests also go to stable. Create an optional JSON remote config flag `checkout_guardrails`, enabled with a value such as:
+
+```json
+{"minCanary":40,"errorDelta":0.02,"latencyDeltaMs":80}
+```
+
+These thresholds only affect the dashboard assessment. Invalid values revert to documented defaults (20 requests, 0.05 absolute error-rate difference and 100 ms p95 difference). The measured numbers remain visible regardless of the assessment.
+
+To enable a **human-approved emergency pause**, use an organisation management API token **only on the server**. Find the `checkout_pause` feature ID and its *environment default feature state* ID from your Flagsmith dashboard/API; do not use an identity or segment state. Start the service with these extra environment variables:
+
+```bash
+CHECKOUT_FLAGSMITH_MANAGEMENT_TOKEN=YOUR_SECRET_TOKEN CHECKOUT_PAUSE_FEATURE_ID=YOUR_FEATURE_ID CHECKOUT_PAUSE_STATE_ID=YOUR_ENVIRONMENT_DEFAULT_STATE_ID
+```
+
+Use these alongside `CHECKOUT_ADMIN_TOKEN`, `CHECKOUT_FLAGSMITH_ENVIRONMENT_ID`, and `CHECKOUT_FLAGSMITH_API_URL` in the earlier start command. The live UI requires the local admin token and an explicit confirmation before it PATCHes that *specific* feature state to `enabled: true`. The server reads the state before and after the change, checks the feature ID, then verifies the environment flag evaluation. If any check fails, it reports an error and records the failure without claiming success. It never changes the advisor experiment flag, increases rollout, or automatically reverses a pause. Metrics and operator records are in memory, so preserve evidence outside the demo if you need durable audit history.
+
 ### Show the experiment result honestly
 
 Before submission, open the Flagsmith experiment and check that both variants have exposures and `correct_rollout_decision` conversions from the same visitor identity. Check `rollout_decision_submitted` counts, sample balance, and whether the SDK flushed events. Refresh the experiment results and record the cohort counts, correct decisions, median decision time, collection date and whether visitors were human or simulated in `src/results.json`. Do not fill these fields with invented values. Keep generated checkout traffic out of the advisor results.

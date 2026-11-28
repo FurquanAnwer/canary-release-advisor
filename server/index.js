@@ -1,12 +1,14 @@
 import http from 'node:http';
 import { createCheckout } from './checkout.js';
 import { createAssignment } from './assignment.js';
+import { assess, createFlagControl } from './control.js';
 
 const service = createCheckout();
 const port = Number(process.env.CHECKOUT_PORT || 8787);
 const host = process.env.CHECKOUT_HOST || '127.0.0.1';
 const token = process.env.CHECKOUT_ADMIN_TOKEN;
 const assignment = createAssignment({ environmentKey: process.env.CHECKOUT_FLAGSMITH_ENVIRONMENT_ID, apiUrl: process.env.CHECKOUT_FLAGSMITH_API_URL });
+const flags = createFlagControl({ environmentKey: process.env.CHECKOUT_FLAGSMITH_ENVIRONMENT_ID, apiUrl: process.env.CHECKOUT_FLAGSMITH_API_URL, managementToken: process.env.CHECKOUT_FLAGSMITH_MANAGEMENT_TOKEN, pauseFeatureId: process.env.CHECKOUT_PAUSE_FEATURE_ID, pauseStateId: process.env.CHECKOUT_PAUSE_STATE_ID });
 
 function reply(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -26,10 +28,21 @@ export function createServer() {
   return http.createServer(async (req, res) => {
     try {
       const path = new URL(req.url, 'http://localhost').pathname;
-      if (req.method === 'GET' && path === '/api/live/metrics') return reply(res, 200, { ...service.metrics(), assignmentSource: assignment.source });
+      if (req.method === 'GET' && path === '/api/live/metrics') {
+        try { await flags.refresh(); } catch { /* status reports unavailability */ }
+        const metrics = service.metrics();
+        return reply(res, 200, { ...metrics, assignmentSource: assignment.source, flagControl: flags.status, canApplyPause: flags.canApply, assessment: assess(metrics, flags.status.guardrails) });
+      }
       if (req.method === 'POST' && path === '/api/checkout') {
         const payload = await readJson(req);
-        const selection = typeof payload.shopperId === 'string' && payload.shopperId.trim() ? await assignment.assign(payload.shopperId, service.metrics().rollout) : undefined;
+        let selection;
+        if (typeof payload.shopperId === 'string' && payload.shopperId.trim()) {
+          if (process.env.CHECKOUT_FLAGSMITH_ENVIRONMENT_ID) {
+            try { await flags.refresh(); } catch { selection = { version: 'stable', source: 'flagsmith-unavailable' }; }
+            if (!selection && flags.status.pause !== false) selection = { version: 'stable', source: flags.status.pause ? 'flagsmith-paused' : 'flagsmith-unavailable' };
+          }
+          if (!selection) selection = await assignment.assign(payload.shopperId, service.metrics().rollout, { region: payload.region || 'unknown', tier: payload.tier || 'standard' });
+        }
         const result = await service.checkout(payload, selection);
         return reply(res, result.ok ? 200 : 503, result);
       }
@@ -39,7 +52,21 @@ export function createServer() {
       }
       if (req.method === 'POST' && path === '/api/live/decisions') {
         if (!token || req.headers.authorization !== `Bearer ${token}`) return reply(res, 403, { error: 'Admin token required' });
-        return reply(res, 201, service.recordDecision(await readJson(req)));
+        const decision = await readJson(req);
+        if (decision.executePause !== true) return reply(res, 201, service.recordDecision(decision));
+        if (decision.action !== 'rollback') return reply(res, 400, { error: 'Only rollback may execute the pause flag' });
+        if (typeof decision.note !== 'string' || decision.note.length > 500) return reply(res, 400, { error: 'Supply a note (max 500 characters)' });
+        if (!flags.canApply) return reply(res, 409, { error: 'Flagsmith pause control is not configured' });
+        // Record attempts, including failed external mutations, without claiming a rollback succeeded.
+        try {
+          const execution = await flags.applyPause();
+          const result = service.recordDecision(decision, { status: 'confirmed', ...execution });
+          service.recordControl('pause', 'Flagsmith checkout_pause enabled and verified');
+          return reply(res, 201, result);
+        } catch (cause) {
+          service.recordControl('pause-error', `Flagsmith pause not confirmed: ${cause.message}`);
+          return reply(res, 502, { error: cause.message });
+        }
       }
       reply(res, 404, { error: 'Not found' });
     } catch (error) { reply(res, 400, { error: error.message }); }

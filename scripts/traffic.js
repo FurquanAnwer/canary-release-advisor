@@ -11,7 +11,7 @@ while (running) {
   const started = Date.now();
   const batch = Array.from({ length: rate }, () => fetch(`${endpoint}/api/checkout`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ cartId: `demo-${Date.now()}-${++count}`, shopperId: `simulated-shopper-${count % 1000}`, amount: 49.99, currency: 'USD' }),
+    body: JSON.stringify({ cartId: `demo-${Date.now()}-${++count}`, shopperId: `simulated-shopper-${count % 1000}`, region: ['IN', 'EU', 'US'][count % 3], tier: count % 4 === 0 ? 'premium' : 'standard', amount: 49.99, currency: 'USD' }),
   }).catch((error) => console.error(`Checkout unavailable: ${error.message}`)));
   await Promise.all(batch);
   await new Promise((resolve) => setTimeout(resolve, Math.max(0, 1000 - (Date.now() - started))));

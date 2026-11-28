@@ -28,12 +28,14 @@ test('config and checkout reject invalid inputs', async () => {
 test('shopper assignment sticks locally; Flagsmith flag controls version and fails closed', async () => {
   assert.equal(localVersion('repeat', 20), localVersion('repeat', 20));
   let calls = 0;
-  const flags = createAssignment({ environmentKey: 'demo', fetcher: async () => {
+  const flags = createAssignment({ environmentKey: 'demo', fetcher: async (url, options) => {
     calls++;
+    assert.equal(options.method, 'POST');
+    assert.deepEqual(JSON.parse(options.body).traits, [{ trait_key: 'region', trait_value: 'IN' }]);
     return { ok: true, json: async () => ({ flags: [{ feature: { name: 'checkout_canary' }, enabled: true, feature_state_value: 'canary' }] }) };
   } });
-  assert.deepEqual(await flags.assign('repeat', 5), { version: 'canary', source: 'flagsmith' });
-  await flags.assign('repeat', 5);
+  assert.deepEqual(await flags.assign('repeat', 5, { region: 'IN' }), { version: 'canary', source: 'flagsmith' });
+  await flags.assign('repeat', 5, { region: 'IN' });
   assert.equal(calls, 1);
   const unavailable = createAssignment({ environmentKey: 'demo', fetcher: async () => { throw new Error('offline'); } });
   assert.deepEqual(await unavailable.assign('repeat', 5), { version: 'stable', source: 'flagsmith-unavailable' });
