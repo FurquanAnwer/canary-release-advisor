@@ -266,9 +266,34 @@ function DecisionExperience({ visitorId }) {
 }
 
 export default function App({ visitorId }) {
-  const [page, setPage] = useState(() => window.location.hash === '#results' ? 'results' : 'trial');
-  useEffect(() => { const update = () => setPage(window.location.hash === '#results' ? 'results' : 'trial'); window.addEventListener('hashchange', update); return () => window.removeEventListener('hashchange', update); }, []);
-  return page === 'results' ? <ResultsPage /> : <DecisionExperience visitorId={visitorId} />;
+  const [page, setPage] = useState(() => window.location.hash === '#results' ? 'results' : window.location.hash === '#live' ? 'live' : 'trial');
+  useEffect(() => { const update = () => setPage(window.location.hash === '#results' ? 'results' : window.location.hash === '#live' ? 'live' : 'trial'); window.addEventListener('hashchange', update); return () => window.removeEventListener('hashchange', update); }, []);
+  return page === 'results' ? <ResultsPage /> : page === 'live' ? <LivePage /> : <DecisionExperience visitorId={visitorId} />;
+}
+
+function LivePage() {
+  const [metrics, setMetrics] = useState(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let active = true;
+    const refresh = async () => {
+      try {
+        const response = await fetch('/api/live/metrics', { cache: 'no-store' });
+        if (!response.ok) throw new Error(`Metrics request failed (${response.status})`);
+        const data = await response.json();
+        if (active) { setMetrics(data); setError(''); }
+      } catch (cause) { if (active) { setError(cause.message); setMetrics(null); } }
+    };
+    refresh();
+    const timer = setInterval(refresh, 2000);
+    return () => { active = false; clearInterval(timer); };
+  }, []);
+  const pct = (value) => value == null ? '—' : `${(value * 100).toFixed(1)}%`;
+  const status = !metrics || !metrics.canary.requests || !metrics.stable.requests ? 'Waiting for traffic in both pools' : metrics.canary.requests < 20 ? 'Hold: canary sample too small' : metrics.canary.errorRate - metrics.stable.errorRate > .05 || metrics.canary.p95Ms - metrics.stable.p95Ms > 100 ? 'Investigate canary regression' : 'Signals within demo guardrails';
+  return <main className="results-page"><a href="#">← Decision lab</a><div className="eyebrow">CHECKOUT API · LIVE DEMO</div><h1>Checkout release signals</h1><p>Measured requests from the local checkout API, separated by stable and canary version. Traffic comes from the labeled generator or actual checkout requests. This page does not submit Flagsmith experiment events.</p>
+    {error ? <p role="alert">Metrics unavailable: {error}. Start the checkout API and traffic generator.</p> : metrics ? <><p role="status">{status} · Canary rollout {metrics.rollout}% · Fault mode {metrics.mode} · Last update {new Date(metrics.generatedAt).toLocaleTimeString()} · Rolling {metrics.windowSeconds}s</p><div className="results-grid">{['stable', 'canary'].map((version) => <article key={version}><h2>{version === 'stable' ? 'Stable version' : 'Canary version'}</h2><p>Requests: {metrics[version].requests}</p><p>Failed: {metrics[version].errors}</p><p>Error rate: {pct(metrics[version].errorRate)}</p><p>p95 response: {metrics[version].p95Ms ?? '—'} ms</p></article>)}</div></> : <p role="status">Loading measurements…</p>}
+    <h2>How to demonstrate</h2><p>Run the checkout API and generator, then use the documented local admin command to change the canary fault mode. Observe real requests and their measured response times. These are generated demo requests, not production customers. The status is illustrative and never changes deployment automatically.</p>
+  </main>;
 }
 
 function ResultsPage() {

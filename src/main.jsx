@@ -9,11 +9,12 @@ import './motion.css';
 
 const environmentID = import.meta.env.VITE_FLAGSMITH_ENVIRONMENT_ID;
 const apiBase = (import.meta.env.VITE_FLAGSMITH_API_URL || 'http://localhost:8000').replace(/\/$/, '');
-if (!environmentID) throw new Error('Set VITE_FLAGSMITH_ENVIRONMENT_ID in .env.local before starting the app.');
+if (!environmentID && window.location.hash !== '#live') throw new Error('Set VITE_FLAGSMITH_ENVIRONMENT_ID in .env.local before starting the experiment. Use #live to preview checkout telemetry without Flagsmith.');
 
 const visitorId = getOrCreateVisitorId(window.localStorage, () => window.crypto.randomUUID());
 
-createRoot(document.getElementById('root')).render(
+const app = <App visitorId={visitorId} />;
+createRoot(document.getElementById('root')).render(environmentID ? (
   <FlagsmithProvider
     flagsmith={flagsmith}
     options={{
@@ -24,6 +25,6 @@ createRoot(document.getElementById('root')).render(
       eventProcessorConfig: { eventsApiUrl: `${apiBase}/api/` },
     }}
   >
-    <App visitorId={visitorId} />
+    {app}
   </FlagsmithProvider>,
-);
+) : app);

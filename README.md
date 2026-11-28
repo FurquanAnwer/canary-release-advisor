@@ -1,5 +1,25 @@
 # Canary Control Room
 
+## Live checkout demonstration
+
+This independent demo feeds actual HTTP request outcomes into `/#live`. Its shoppers are generated; it is **not production telemetry** and does not contribute to the Flagsmith decision experiment. You can run it without a Flagsmith key. From the repository root, use three terminals:
+
+```bash
+CHECKOUT_ADMIN_TOKEN=local-demo-secret npm run checkout
+npm run traffic
+npm run dev
+```
+
+Open `http://localhost:5173/#live`. The generator sends 20 checkout requests per second by default. The service routes 5% to canary and records the actual result and duration of each request; the dashboard shows rolling one-minute request counts, failures, error rate and p95 for each version. To make the canary fail while stable stays healthy:
+
+```bash
+curl -X POST http://127.0.0.1:8787/api/live/config -H 'Content-Type: application/json' -H 'Authorization: Bearer local-demo-secret' -d '{"mode":"regression","rollout":20}'
+```
+
+Set `mode` to `healthy` to recover or `latency` to slow only canary. Set `rollout` to an integer from 0 to 100. These are local demonstration controls; the config endpoint requires a token and the API binds to loopback by default. Do not publish this demo API as a payment processor: it charges nothing, stores no orders, and has no persistence. Metrics live in memory and reset on restart. `TRAFFIC_RPS=30 npm run traffic` changes the generated rate; Ctrl+C stops it. `npm test` checks routing and rolling counts.
+
+For a public deployment, serve the Vite app and proxy `/api/live/metrics` to this API; keep the admin endpoint private. The Vite development server already proxies the metrics route locally. Real production integration would replace the in-memory checkout service with instrumented application requests and a persistent monitoring data source.
+
 A local rollout decision experiment using Flagsmith Experimentation. Each browser visitor receives a stable cohort and one randomly assigned scored scenario. The other scenarios unlock as unscored practice.
 
 The interface uses a monochrome control-room theme with CSS wireframe box motion, animated charts and scenario cards, and scroll reveals. Motion is reduced automatically when the browser requests reduced motion.

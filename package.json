@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
-    "test": "node --test src/decision.test.js",
+    "test": "node --test src/decision.test.js server/checkout.test.js",
+    "checkout": "node server/index.js",
+    "traffic": "node scripts/traffic.js",
     "test:ui": "vitest run"
   },
   "dependencies": {
